@@ -36,7 +36,7 @@ var frontendFS embed.FS
 
 // 版本信息（可以通过构建时注入）
 var (
-	Version   = "v0.5.7"  // 版本号
+	Version   = "v0.5.8"  // 版本号
 	BuildTime = "unknown" // 构建时间
 	GitCommit = "unknown" // Git提交哈希
 )
