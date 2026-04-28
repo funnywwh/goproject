@@ -205,8 +205,11 @@
                       <a-form-item label="状态">
                         <a-select
                           v-model:value="searchForm.status"
-                          placeholder="选择状态"
+                          mode="multiple"
+                          placeholder="选择状态（可多选）"
                           allow-clear
+                          show-search
+                          max-tag-count="responsive"
                         >
                           <a-select-option value="active">激活</a-select-option>
                           <a-select-option value="resolved">已解决</a-select-option>
@@ -904,6 +907,7 @@ import {
   getBugColumnSettings,
   saveBugColumnSettings,
   type Bug,
+  type BugStatus,
   type CreateBugRequest,
   type BugStatistics,
   type ColumnSetting
@@ -943,11 +947,12 @@ const bugListLoading = ref(false)
 const detailModalVisible = ref(false)
 const detailLoading = ref(false)
 const detailBug = ref<Bug | null>(null)
+const validBugStatuses: BugStatus[] = ['active', 'resolved', 'closed']
 
 const searchForm = reactive({
   keyword: '',
   project_id: undefined as number | undefined,
-  status: undefined as string | undefined,
+  status: [] as BugStatus[] | undefined,
   priority: undefined as string | undefined,
   severity: undefined as string | undefined,
   version_id: undefined as number | undefined,
@@ -959,6 +964,26 @@ const searchForm = reactive({
 
 // 更新日期范围选择器
 const updatedDateRange = ref<[Dayjs, Dayjs] | null>(null)
+
+const normalizeStatusFilter = (status?: string | null | Array<string | null>): BugStatus[] => {
+  const values = Array.isArray(status) ? status : status ? [status] : []
+
+  return Array.from(
+    new Set(
+      values
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .flatMap(value => value.split(','))
+        .map(value => value.trim())
+        .filter((value): value is BugStatus => validBugStatuses.includes(value as BugStatus))
+    )
+  )
+}
+
+const getStatusFilterParam = () => {
+  return Array.isArray(searchForm.status) && searchForm.status.length > 0
+    ? searchForm.status.join(',')
+    : undefined
+}
 
 const pagination = reactive({
   current: 1,
@@ -1369,8 +1394,9 @@ const loadBugs = async () => {
     if (searchForm.project_id) {
       params.project_id = searchForm.project_id
     }
-    if (searchForm.status) {
-      params.status = searchForm.status
+    const statusParam = getStatusFilterParam()
+    if (statusParam) {
+      params.status = statusParam
     }
     if (searchForm.priority) {
       params.priority = searchForm.priority
@@ -1572,16 +1598,12 @@ const toggleSearchForm = () => {
 }
 
 // 统计项点击处理
-const handleStatisticClick = (status?: string, priority?: string, severity?: string) => {
+const handleStatisticClick = (status?: BugStatus, priority?: string, severity?: string) => {
   // 切换到列表标签页
   activeTab.value = 'list'
   
   // 设置筛选条件
-  if (status) {
-    searchForm.status = status
-  } else {
-    searchForm.status = undefined
-  }
+  searchForm.status = status ? [status] : []
   
   if (priority) {
     searchForm.priority = priority
@@ -1673,7 +1695,7 @@ const handleFormProjectChange = (value: number | undefined) => {
 const handleReset = () => {
   searchForm.keyword = ''
   searchForm.project_id = undefined
-  searchForm.status = undefined
+  searchForm.status = []
   searchForm.priority = undefined
   searchForm.severity = undefined
   searchForm.version_id = undefined
@@ -2203,8 +2225,9 @@ const loadAdjacentBugs = async (currentBugId: number) => {
     if (searchForm.project_id) {
       baseParams.project_id = searchForm.project_id
     }
-    if (searchForm.status) {
-      baseParams.status = searchForm.status
+    const statusParam = getStatusFilterParam()
+    if (statusParam) {
+      baseParams.status = statusParam
     }
     if (searchForm.priority) {
       baseParams.priority = searchForm.priority
@@ -2495,9 +2518,7 @@ onMounted(async () => {
   }
   
   // 读取路由查询参数
-  if (route.query.status) {
-    searchForm.status = route.query.status as string
-  }
+  searchForm.status = normalizeStatusFilter(route.query.status)
   if (route.query.assignee === 'me' && authStore.user) {
     searchForm.assignToMe = true
     searchForm.assignee_id = authStore.user.id
@@ -2785,4 +2806,3 @@ onMounted(async () => {
   white-space: nowrap;
 }
 </style>
-

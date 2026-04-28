@@ -51,6 +51,24 @@ func TestBugHandler_GetBugs(t *testing.T) {
 	}
 	db.Create(bug2)
 
+	db.Create(&model.Bug{
+		Title:     "Bug3",
+		ProjectID: project2.ID,
+		CreatorID: otherUser.ID,
+		Status:    "active",
+		Priority:  "medium",
+		Severity:  "high",
+	})
+
+	db.Create(&model.Bug{
+		Title:     "Bug4",
+		ProjectID: project2.ID,
+		CreatorID: otherUser.ID,
+		Status:    "closed",
+		Priority:  "low",
+		Severity:  "medium",
+	})
+
 	handler := api.NewBugHandler(db)
 
 	t.Run("管理员可以获取所有Bug", func(t *testing.T) {
@@ -142,6 +160,28 @@ func TestBugHandler_GetBugs(t *testing.T) {
 		list := data["list"].([]interface{})
 		// 用户应该能看到自己创建的Bug1
 		assert.Equal(t, 1, len(list))
+	})
+
+	t.Run("支持按多个状态筛选", func(t *testing.T) {
+		gin.SetMode(gin.TestMode)
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/bugs?status=active,closed", nil)
+		c.Set("user_id", adminUser.ID)
+		c.Set("roles", []string{"admin"})
+
+		handler.GetBugs(c)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		assert.Equal(t, float64(200), response["code"])
+
+		data := response["data"].(map[string]interface{})
+		list := data["list"].([]interface{})
+		assert.Len(t, list, 2)
 	})
 
 	_ = project
@@ -765,4 +805,3 @@ func TestBugHandler_AssignBug(t *testing.T) {
 		assert.True(t, w.Code == http.StatusNotFound || (response["code"] != nil && response["code"] != float64(200)))
 	})
 }
-

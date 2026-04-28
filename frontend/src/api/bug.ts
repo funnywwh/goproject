@@ -1,10 +1,12 @@
 import request from '../utils/request'
 
+export type BugStatus = 'active' | 'resolved' | 'closed'
+
 export interface Bug {
   id: number
   title: string
   description?: string
-  status: 'active' | 'resolved' | 'closed'
+  status: BugStatus
   priority: 'low' | 'medium' | 'high' | 'urgent'
   severity: 'low' | 'medium' | 'high' | 'critical'
   confirmed?: boolean  // 是否确认
@@ -39,7 +41,7 @@ export interface BugListResponse {
 export interface CreateBugRequest {
   title: string
   description?: string
-  status?: 'active' | 'resolved' | 'closed'
+  status?: BugStatus
   priority?: 'low' | 'medium' | 'high' | 'urgent'
   severity?: 'low' | 'medium' | 'high' | 'critical'
   project_id: number
@@ -53,7 +55,7 @@ export interface CreateBugRequest {
 }
 
 export interface UpdateBugStatusRequest {
-  status: 'active' | 'resolved' | 'closed'
+  status: BugStatus
   solution?: string
   solution_note?: string
   estimated_hours?: number
@@ -66,7 +68,7 @@ export interface UpdateBugStatusRequest {
 
 export interface AssignBugRequest {
   assignee_ids: number[]
-  status?: 'active' | 'resolved' | 'closed'
+  status?: BugStatus
   comment?: string
 }
 
@@ -74,7 +76,7 @@ export interface AssignBugRequest {
 export const getBugs = async (params?: {
   keyword?: string
   project_id?: number
-  status?: string
+  status?: string | BugStatus[]
   priority?: string
   severity?: string
   requirement_id?: number
@@ -85,7 +87,11 @@ export const getBugs = async (params?: {
   page?: number
   size?: number
 }): Promise<BugListResponse> => {
-  return request.get('/bugs', { params })
+  const requestParams = params ? { ...params } : undefined
+  if (requestParams && Array.isArray(requestParams.status)) {
+    requestParams.status = requestParams.status.join(',')
+  }
+  return request.get('/bugs', { params: requestParams })
 }
 
 export const getBug = async (id: number): Promise<Bug> => {
@@ -236,4 +242,3 @@ export const getBugColumnSettings = async (): Promise<ColumnSetting[]> => {
 export const saveBugColumnSettings = async (settings: ColumnSetting[]): Promise<void> => {
   return request.post('/bugs/column-settings', settings)
 }
-

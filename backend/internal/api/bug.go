@@ -21,14 +21,50 @@ func NewBugHandler(db *gorm.DB) *BugHandler {
 	return &BugHandler{db: db}
 }
 
-// GetBugs 获取Bug列表
-func (h *BugHandler) GetBugs(c *gin.Context) {
-	var bugs []model.Bug
-	query := h.db.Preload("Project").Preload("Creator").Preload("Assignees").Preload("Requirement").Preload("Module").Preload("Versions")
+func splitQueryValues(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
 
-	// 权限过滤：普通用户只能看到自己创建或参与的Bug
-	query = utils.FilterBugsByUser(h.db, c, query)
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
 
+	for _, value := range values {
+		for _, item := range strings.Split(value, ",") {
+			trimmed := strings.TrimSpace(item)
+			if trimmed == "" {
+				continue
+			}
+			if _, exists := seen[trimmed]; exists {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			result = append(result, trimmed)
+		}
+	}
+
+	return result
+}
+
+func getStatusFilters(c *gin.Context) []string {
+	queryValues := append([]string{}, c.QueryArray("status")...)
+	queryValues = append(queryValues, c.QueryArray("status[]")...)
+
+	return splitQueryValues(queryValues)
+}
+
+func applyStatusFilter(query *gorm.DB, statuses []string) *gorm.DB {
+	switch len(statuses) {
+	case 0:
+		return query
+	case 1:
+		return query.Where("status = ?", statuses[0])
+	default:
+		return query.Where("status IN ?", statuses)
+	}
+}
+
+func (h *BugHandler) applyBugBaseFilters(c *gin.Context, query *gorm.DB) *gorm.DB {
 	// 搜索
 	if keyword := c.Query("keyword"); keyword != "" {
 		query = query.Where("title LIKE ? OR description LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
@@ -40,9 +76,7 @@ func (h *BugHandler) GetBugs(c *gin.Context) {
 	}
 
 	// 状态筛选
-	if status := c.Query("status"); status != "" {
-		query = query.Where("status = ?", status)
-	}
+	query = applyStatusFilter(query, getStatusFilters(c))
 
 	// 优先级筛选
 	if priority := c.Query("priority"); priority != "" {
@@ -83,6 +117,18 @@ func (h *BugHandler) GetBugs(c *gin.Context) {
 		}
 	}
 
+	return query
+}
+
+// GetBugs 获取Bug列表
+func (h *BugHandler) GetBugs(c *gin.Context) {
+	var bugs []model.Bug
+	query := h.db.Preload("Project").Preload("Creator").Preload("Assignees").Preload("Requirement").Preload("Module").Preload("Versions")
+
+	// 权限过滤：普通用户只能看到自己创建或参与的Bug
+	query = utils.FilterBugsByUser(h.db, c, query)
+	query = h.applyBugBaseFilters(c, query)
+
 	// 版本筛选（通过关联表）
 	hasVersionFilter := false
 	var versionBugIDs []uint
@@ -92,45 +138,7 @@ func (h *BugHandler) GetBugs(c *gin.Context) {
 
 		// 应用权限过滤
 		idQuery = utils.FilterBugsByUser(h.db, c, idQuery)
-
-		// 应用所有筛选条件
-		if keyword := c.Query("keyword"); keyword != "" {
-			idQuery = idQuery.Where("title LIKE ? OR description LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
-		}
-		if projectID := c.Query("project_id"); projectID != "" {
-			idQuery = idQuery.Where("project_id = ?", projectID)
-		}
-		if status := c.Query("status"); status != "" {
-			idQuery = idQuery.Where("status = ?", status)
-		}
-		if priority := c.Query("priority"); priority != "" {
-			idQuery = idQuery.Where("priority = ?", priority)
-		}
-		if severity := c.Query("severity"); severity != "" {
-			idQuery = idQuery.Where("severity = ?", severity)
-		}
-		if requirementID := c.Query("requirement_id"); requirementID != "" {
-			idQuery = idQuery.Where("requirement_id = ?", requirementID)
-		}
-		if moduleID := c.Query("module_id"); moduleID != "" {
-			idQuery = idQuery.Where("module_id = ?", moduleID)
-		}
-		if creatorID := c.Query("creator_id"); creatorID != "" {
-			idQuery = idQuery.Where("creator_id = ?", creatorID)
-		}
-		// 更新日期范围筛选
-		if startDate := c.Query("updated_start_date"); startDate != "" {
-			if startTime, err := time.Parse("2006-01-02", startDate); err == nil {
-				idQuery = idQuery.Where("updated_at >= ?", startTime)
-			}
-		}
-		if endDate := c.Query("updated_end_date"); endDate != "" {
-			if endTime, err := time.Parse("2006-01-02", endDate); err == nil {
-				// 结束日期包含整天，所以加一天
-				endTime = endTime.AddDate(0, 0, 1)
-				idQuery = idQuery.Where("updated_at < ?", endTime)
-			}
-		}
+		idQuery = h.applyBugBaseFilters(c, idQuery)
 
 		// JOIN 版本关联表
 		idQuery = idQuery.Joins("JOIN version_bugs ON version_bugs.bug_id = bugs.id").
@@ -165,45 +173,7 @@ func (h *BugHandler) GetBugs(c *gin.Context) {
 
 		// 应用权限过滤
 		idQuery = utils.FilterBugsByUser(h.db, c, idQuery)
-
-		// 应用所有筛选条件
-		if keyword := c.Query("keyword"); keyword != "" {
-			idQuery = idQuery.Where("title LIKE ? OR description LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
-		}
-		if projectID := c.Query("project_id"); projectID != "" {
-			idQuery = idQuery.Where("project_id = ?", projectID)
-		}
-		if status := c.Query("status"); status != "" {
-			idQuery = idQuery.Where("status = ?", status)
-		}
-		if priority := c.Query("priority"); priority != "" {
-			idQuery = idQuery.Where("priority = ?", priority)
-		}
-		if severity := c.Query("severity"); severity != "" {
-			idQuery = idQuery.Where("severity = ?", severity)
-		}
-		if requirementID := c.Query("requirement_id"); requirementID != "" {
-			idQuery = idQuery.Where("requirement_id = ?", requirementID)
-		}
-		if moduleID := c.Query("module_id"); moduleID != "" {
-			idQuery = idQuery.Where("module_id = ?", moduleID)
-		}
-		if creatorID := c.Query("creator_id"); creatorID != "" {
-			idQuery = idQuery.Where("creator_id = ?", creatorID)
-		}
-		// 更新日期范围筛选
-		if startDate := c.Query("updated_start_date"); startDate != "" {
-			if startTime, err := time.Parse("2006-01-02", startDate); err == nil {
-				idQuery = idQuery.Where("updated_at >= ?", startTime)
-			}
-		}
-		if endDate := c.Query("updated_end_date"); endDate != "" {
-			if endTime, err := time.Parse("2006-01-02", endDate); err == nil {
-				// 结束日期包含整天，所以加一天
-				endTime = endTime.AddDate(0, 0, 1)
-				idQuery = idQuery.Where("updated_at < ?", endTime)
-			}
-		}
+		idQuery = h.applyBugBaseFilters(c, idQuery)
 
 		// JOIN 分配人表
 		idQuery = idQuery.Joins("JOIN bug_assignees ON bug_assignees.bug_id = bugs.id").
@@ -270,45 +240,8 @@ func (h *BugHandler) GetBugs(c *gin.Context) {
 	// 构建 countQuery，应用与 query 相同的筛选条件
 	var total int64
 	countQuery := utils.FilterBugsByUser(h.db, c, h.db.Model(&model.Bug{}))
+	countQuery = h.applyBugBaseFilters(c, countQuery)
 
-	// 应用所有筛选条件（与 query 保持一致）
-	if keyword := c.Query("keyword"); keyword != "" {
-		countQuery = countQuery.Where("title LIKE ? OR description LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
-	}
-	if projectID := c.Query("project_id"); projectID != "" {
-		countQuery = countQuery.Where("project_id = ?", projectID)
-	}
-	if status := c.Query("status"); status != "" {
-		countQuery = countQuery.Where("status = ?", status)
-	}
-	if priority := c.Query("priority"); priority != "" {
-		countQuery = countQuery.Where("priority = ?", priority)
-	}
-	if severity := c.Query("severity"); severity != "" {
-		countQuery = countQuery.Where("severity = ?", severity)
-	}
-	if requirementID := c.Query("requirement_id"); requirementID != "" {
-		countQuery = countQuery.Where("requirement_id = ?", requirementID)
-	}
-	if moduleID := c.Query("module_id"); moduleID != "" {
-		countQuery = countQuery.Where("module_id = ?", moduleID)
-	}
-	if creatorID := c.Query("creator_id"); creatorID != "" {
-		countQuery = countQuery.Where("creator_id = ?", creatorID)
-	}
-	// 更新日期范围筛选
-	if startDate := c.Query("updated_start_date"); startDate != "" {
-		if startTime, err := time.Parse("2006-01-02", startDate); err == nil {
-			countQuery = countQuery.Where("updated_at >= ?", startTime)
-		}
-	}
-	if endDate := c.Query("updated_end_date"); endDate != "" {
-		if endTime, err := time.Parse("2006-01-02", endDate); err == nil {
-			// 结束日期包含整天，所以加一天
-			endTime = endTime.AddDate(0, 0, 1)
-			countQuery = countQuery.Where("updated_at < ?", endTime)
-		}
-	}
 	// 分配人和版本筛选（通过关联表）
 	if hasAssigneeFilter {
 		// 使用已查询的 ID 列表进行计数
