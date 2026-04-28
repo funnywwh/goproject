@@ -106,6 +106,7 @@ build_platform() {
     export CGO_ENABLED=$cgo_enabled
     export GOOS=$goos
     export GOARCH=$goarch
+    export GOPROXY=https://goproxy.cn
 
     # 构建参数
     LDFLAGS="-s -w"
